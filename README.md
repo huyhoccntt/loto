@@ -1,8 +1,22 @@
 # Lotto
 
-Ứng dụng lô tô nhiều người chơi cục bộ, chạy dạng web tĩnh. Không cần Node server, Supabase hay cấu hình biến môi trường.
+Ứng dụng lô tô nhiều người chơi, chạy dạng web tĩnh. Khi cấu hình Supabase Realtime, mọi người có thể chơi cùng nhau qua Internet; nếu không cấu hình, ứng dụng chỉ đồng bộ giữa các tab trên cùng thiết bị.
 
-Tạo phòng, tham gia bằng mã, quay số, đặt lại ván và thông báo KINH hoạt động giữa các tab của cùng trình duyệt/thiết bị. GitHub Pages không cung cấp backend, vì vậy các thiết bị khác nhau không thể đồng bộ với nhau ở chế độ này.
+Tạo phòng, tham gia bằng mã, quay số, đặt lại ván và thông báo KINH được đồng bộ realtime.
+
+## Cấu hình chơi qua Internet
+
+GitHub Pages chỉ lưu trữ giao diện tĩnh. Để chia sẻ phòng với người chơi ở thiết bị hoặc địa điểm khác, cần kết nối ứng dụng với Supabase Realtime:
+
+1. Tạo project tại [supabase.com](https://supabase.com/).
+2. Trong **Project Settings → API**, lấy **Project URL** và **anon/public key** (có thể mang tên `publishable key` trong giao diện mới).
+3. Để chạy local, sao chép `.env.example` thành `.env.local` và điền hai giá trị:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+4. Trên GitHub, vào **Settings → Secrets and variables → Actions → New repository secret**, tạo hai secret cùng tên ở trên.
+5. Push lên `main` hoặc chạy workflow deploy trong **Actions**. Sau khi workflow hoàn tất, mở lại trang GitHub Pages. Khi tiêu đề hiển thị **ONLINE ROOM**, có thể chia sẻ mã phòng cho bạn bè.
+
+Ứng dụng chỉ dùng Supabase Realtime Broadcast/Presence, không cần tạo bảng database. Phòng tồn tại trong thời gian host còn mở trang; nếu host đóng trang hoặc mất kết nối, phòng sẽ không còn trạng thái để người khác tham gia. Không đưa `service_role` key vào ứng dụng; chỉ dùng anon/publishable key.
 
 ## Build và triển khai GitHub Pages
 

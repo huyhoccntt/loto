@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Check, Copy, Dices, DoorOpen, RotateCcw, Trophy, Users, Wifi, X } from 'lucide-react'
 import { createRoomCode, createTicket, drawNextNumber, makeRoomState, type RoomState } from './lotto'
 import { LocalRealtimeChannel } from './localRealtime'
+import { isSupabaseConfigured } from './supabase'
 import './App.css'
 
 const currentYear = new Date().getFullYear()
@@ -13,7 +14,7 @@ function App() {
   const roomRef = useRef<RoomState | null>(null)
   const joinTimeoutRef = useRef<number | null>(null)
   const finishedRef = useRef(false)
-  const [connected] = useState(() => typeof BroadcastChannel !== 'undefined')
+  const [connected] = useState(() => isSupabaseConfigured || typeof BroadcastChannel !== 'undefined')
   const [room, setRoom] = useState<RoomState | null>(null)
   const [playerName, setPlayerName] = useState('')
   const [roomCode, setRoomCode] = useState('')
@@ -111,14 +112,24 @@ function App() {
     if (roomChannelRef.current) await roomChannelRef.current.unsubscribe()
     const channel = createRoomChannel(code)
     roomChannelRef.current = channel
-    await new Promise<void>((resolve) => {
-      channel.subscribe((status) => {
-        if (status === 'SUBSCRIBED') resolve()
+    try {
+      await new Promise<void>((resolve, reject) => {
+        channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            resolve()
+          } else {
+            reject(new Error('Không kết nối được Realtime. Kiểm tra cấu hình Supabase và kết nối mạng.'))
+          }
+        })
       })
-    })
-    const presenceStatus = await channel.track({ playerId: clientIdRef.current })
-    if (presenceStatus !== 'ok') throw new Error('Không thể đăng ký người chơi trong phòng.')
-    return channel
+      const presenceStatus = await channel.track({ playerId: clientIdRef.current })
+      if (presenceStatus !== 'ok') throw new Error('Không thể đăng ký người chơi trong phòng.')
+      return channel
+    } catch (cause) {
+      await channel.unsubscribe()
+      if (roomChannelRef.current === channel) roomChannelRef.current = null
+      throw cause
+    }
   }
 
   const createRoom = async () => {
@@ -255,7 +266,7 @@ function App() {
           <span className={`connection ${connected ? 'is-connected' : ''}`}>
             <span className="connection-dot" />{connected ? 'Đang kết nối' : 'Đang nối lại'}
           </span>
-          <span className="local-tag"><Wifi size={14} /> LOCAL ROOM</span>
+          <span className="local-tag"><Wifi size={14} /> {isSupabaseConfigured ? 'ONLINE ROOM' : 'LOCAL ROOM'}</span>
         </div>
       </header>
 
@@ -268,7 +279,7 @@ function App() {
             <div className="lobby-stats">
               <div><strong>01—90</strong><span>BỘ SỐ</span></div>
               <i />
-              <div><strong>LOCAL</strong><span>ĐỒNG BỘ NHIỀU TAB</span></div>
+              <div><strong>{isSupabaseConfigured ? 'ONLINE' : 'LOCAL'}</strong><span>{isSupabaseConfigured ? 'CHƠI QUA INTERNET' : 'ĐỒNG BỘ NHIỀU TAB'}</span></div>
             </div>
           </div>
 
@@ -289,7 +300,7 @@ function App() {
               <button className="join-button" aria-label="Vào phòng" onClick={() => void joinRoom()} disabled={!connected}><DoorOpen size={18} /></button>
             </div>
             {error && <p className="form-error" role="alert">{error}</p>}
-            <p className="local-note"><span /> Mở cùng trang ở tab khác trên thiết bị này để tham gia</p>
+            <p className="local-note"><span /> {isSupabaseConfigured ? 'Chia sẻ mã phòng để bạn bè tham gia từ xa' : 'Mở cùng trang ở tab khác trên thiết bị này để tham gia'}</p>
           </div>
         </section>
       ) : (
