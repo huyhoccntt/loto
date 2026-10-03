@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Check, Copy, Dices, DoorOpen, RotateCcw, Trophy, Users, Wifi, X } from 'lucide-react'
-import type { RealtimeChannel } from '@supabase/supabase-js'
-import { supabase } from './supabase'
 import { createRoomCode, createTicket, drawNextNumber, makeRoomState, type RoomState } from './lotto'
+import { LocalRealtimeChannel } from './localRealtime'
 import './App.css'
 
 const currentYear = new Date().getFullYear()
@@ -10,37 +9,29 @@ const currentYear = new Date().getFullYear()
 function App() {
   const [clientId] = useState(() => crypto.randomUUID())
   const clientIdRef = useRef(clientId)
-  const roomChannelRef = useRef<RealtimeChannel | null>(null)
+  const roomChannelRef = useRef<LocalRealtimeChannel | null>(null)
   const roomRef = useRef<RoomState | null>(null)
   const joinTimeoutRef = useRef<number | null>(null)
   const finishedRef = useRef(false)
-  const [connected, setConnected] = useState(false)
+  const [connected] = useState(() => typeof BroadcastChannel !== 'undefined')
   const [room, setRoom] = useState<RoomState | null>(null)
   const [playerName, setPlayerName] = useState('')
   const [roomCode, setRoomCode] = useState('')
-  const [error, setError] = useState(
-    supabase ? '' : 'Thiếu cấu hình Supabase. Hãy tạo file .env.local theo hướng dẫn trong README.',
+  const [error, setError] = useState(() =>
+    typeof BroadcastChannel === 'undefined'
+      ? 'Trình duyệt này không hỗ trợ chơi nhiều tab. Hãy dùng trình duyệt mới hơn.'
+      : '',
   )
   const [copied, setCopied] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [winnerDialogOpen, setWinnerDialogOpen] = useState(false)
 
   useEffect(() => {
-    if (!supabase) return
-
-    const lobby = supabase.channel(`lotto-lobby-${clientId}`)
-    lobby.subscribe((status) => {
-      setConnected(status === 'SUBSCRIBED')
-      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        setError('Không thể kết nối Supabase Realtime. Hãy kiểm tra cấu hình và kết nối mạng.')
-      }
-    })
     return () => {
       if (joinTimeoutRef.current !== null) window.clearTimeout(joinTimeoutRef.current)
       if (roomChannelRef.current) void roomChannelRef.current.unsubscribe()
-      void lobby.unsubscribe()
     }
-  }, [clientId])
+  }, [])
 
   const applyRoom = (nextRoom: RoomState) => {
     roomRef.current = nextRoom
@@ -60,14 +51,11 @@ function App() {
   }
 
   const createRoomChannel = (code: string) => {
-    if (!supabase) throw new Error('Thiếu cấu hình Supabase.')
     const id = clientIdRef.current
-    const channel = supabase.channel(`lotto-room-${code}`, {
-      config: { broadcast: { self: false }, presence: { key: id } },
-    })
+    const channel = new LocalRealtimeChannel(`lotto-room-${code}`)
     channel
       .on('broadcast', { event: 'room-state' }, ({ payload }) => {
-        if (!payload || typeof payload !== 'object' || !Array.isArray(payload.players)) return
+        if (!payload || typeof payload !== 'object' || !Array.isArray((payload as RoomState).players)) return
         const nextRoom = payload as RoomState
         applyRoom(nextRoom)
         if (nextRoom.players.some((player) => player.id === id) && joinTimeoutRef.current !== null) {
@@ -116,47 +104,25 @@ function App() {
       .on('broadcast', { event: 'room-announcement' }, ({ payload }) => {
         if (typeof payload === 'string') setAnnouncement(payload)
       })
-      .on('presence', { event: 'sync' }, async () => {
-        const current = roomRef.current
-        if (!current) return
-        const onlineIds = new Set(
-          Object.values(channel.presenceState<{ playerId?: string }>()).flat().flatMap((presence) =>
-            typeof presence.playerId === 'string' ? [presence.playerId] : [],
-          ),
-        )
-        const players = current.players.filter((player) => onlineIds.has(player.id))
-        if (!players.length) return
-        const hostId = onlineIds.has(current.hostId) ? current.hostId : players[0].id
-        if (players.length !== current.players.length || hostId !== current.hostId) {
-          await sendRoomState(makeRoomState(current.code, hostId, current.drawnNumbers, current.finished, current.winners, players))
-        }
-      })
     return channel
   }
 
   const openRoomChannel = async (code: string) => {
-    if (!supabase) throw new Error('Thiếu cấu hình Supabase.')
     if (roomChannelRef.current) await roomChannelRef.current.unsubscribe()
     const channel = createRoomChannel(code)
     roomChannelRef.current = channel
-    const result = await new Promise<'SUBSCRIBED' | 'ERROR'>((resolve) => {
+    await new Promise<void>((resolve) => {
       channel.subscribe((status) => {
-        if (status === 'SUBSCRIBED') resolve('SUBSCRIBED')
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') resolve('ERROR')
+        if (status === 'SUBSCRIBED') resolve()
       })
     })
-    if (result !== 'SUBSCRIBED') {
-      roomChannelRef.current = null
-      throw new Error('Không thể kết nối kênh phòng qua Supabase Realtime.')
-    }
     const presenceStatus = await channel.track({ playerId: clientIdRef.current })
-    if (presenceStatus !== 'ok') throw new Error('Không thể đăng ký trạng thái người chơi trong phòng.')
+    if (presenceStatus !== 'ok') throw new Error('Không thể đăng ký người chơi trong phòng.')
     return channel
   }
 
   const createRoom = async () => {
     if (!playerName.trim()) return setError('Nhập tên của bạn để tạo phòng.')
-    if (!supabase) return setError('Thiếu cấu hình Supabase. Hãy tạo file .env.local theo hướng dẫn trong README.')
     setError('')
     setAnnouncement('')
     setWinnerDialogOpen(false)
@@ -174,7 +140,6 @@ function App() {
   const joinRoom = async () => {
     if (!playerName.trim()) return setError('Nhập tên của bạn trước khi vào phòng.')
     if (!roomCode.trim()) return setError('Nhập mã phòng để tiếp tục.')
-    if (!supabase) return setError('Thiếu cấu hình Supabase. Hãy tạo file .env.local theo hướng dẫn trong README.')
     setError('')
     setAnnouncement('')
     setWinnerDialogOpen(false)
@@ -290,7 +255,7 @@ function App() {
           <span className={`connection ${connected ? 'is-connected' : ''}`}>
             <span className="connection-dot" />{connected ? 'Đang kết nối' : 'Đang nối lại'}
           </span>
-          <span className="local-tag"><Wifi size={14} /> REALTIME ROOM</span>
+          <span className="local-tag"><Wifi size={14} /> LOCAL ROOM</span>
         </div>
       </header>
 
@@ -303,7 +268,7 @@ function App() {
             <div className="lobby-stats">
               <div><strong>01—90</strong><span>BỘ SỐ</span></div>
               <i />
-              <div><strong>REAL TIME</strong><span>ĐỒNG BỘ TRỰC TIẾP</span></div>
+              <div><strong>LOCAL</strong><span>ĐỒNG BỘ NHIỀU TAB</span></div>
             </div>
           </div>
 
@@ -324,7 +289,7 @@ function App() {
               <button className="join-button" aria-label="Vào phòng" onClick={() => void joinRoom()} disabled={!connected}><DoorOpen size={18} /></button>
             </div>
             {error && <p className="form-error" role="alert">{error}</p>}
-            <p className="local-note"><span /> Phòng đồng bộ trực tiếp qua internet</p>
+            <p className="local-note"><span /> Mở cùng trang ở tab khác trên thiết bị này để tham gia</p>
           </div>
         </section>
       ) : (
@@ -413,7 +378,7 @@ function App() {
           </div>
         </section>
       )}
-      <footer className="footer"><span>LOTT<span className="wordmark-o">O</span></span><span>ONLINE MULTIPLAYER · {currentYear}</span></footer>
+      <footer className="footer"><span>LOTT<span className="wordmark-o">O</span></span><span>LOCAL MULTIPLAYER · {currentYear}</span></footer>
     </main>
   )
 }
