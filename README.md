@@ -14,7 +14,7 @@ GitHub Pages chỉ lưu trữ giao diện tĩnh. Để chia sẻ phòng với ng
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
 4. Trên GitHub, vào **Settings → Secrets and variables → Actions → New repository secret**, tạo hai secret cùng tên ở trên.
-5. Push lên `main` hoặc chạy workflow deploy trong **Actions**. Sau khi workflow hoàn tất, mở lại trang GitHub Pages. Khi tiêu đề hiển thị **ONLINE ROOM**, có thể chia sẻ mã phòng cho bạn bè.
+5. Sau khi lưu Secrets, vào **Actions → Deploy to GitHub Pages → Run workflow** để build lại với cấu hình mới (việc thêm Secrets không tự kích hoạt deploy). Khi workflow hoàn tất, mở lại trang GitHub Pages. Khi tiêu đề hiển thị **ONLINE ROOM**, có thể chia sẻ mã phòng cho bạn bè.
 
 Ứng dụng chỉ dùng Supabase Realtime Broadcast/Presence, không cần tạo bảng database. Phòng tồn tại trong thời gian host còn mở trang; nếu host đóng trang hoặc mất kết nối, phòng sẽ không còn trạng thái để người khác tham gia. Không đưa `service_role` key vào ứng dụng; chỉ dùng anon/publishable key.
 
